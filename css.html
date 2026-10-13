@@ -1,0 +1,164 @@
+<style>
+  :root {
+    --navy: #183b56; --blue: #2f80ed; --sky: #eef6ff; --ink: #172b4d;
+    --muted: #6b7c93; --line: #dfe6ee; --paper: #fff; --bg: #f4f7fb;
+    --red: #d64545; --red-bg: #fff0f0; --course: #2166d1; --course-bg: #edf4ff;
+    --green: #18845b; --shadow: 0 10px 30px rgba(24, 59, 86, .08);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; color: var(--ink); background: var(--bg); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans JP", sans-serif; }
+  button, input, select, textarea { font: inherit; }
+  button { cursor: pointer; }
+  .header { display: flex; align-items: center; justify-content: space-between; padding: 18px 28px; background: var(--paper); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 20; }
+  .brand { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 800; color: var(--navy); }
+  .brand-mark { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 11px; color: #fff; background: linear-gradient(135deg, var(--blue), #65b8ff); }
+  .container { max-width: 1440px; margin: 0 auto; padding: 24px; }
+  .grid { display: grid; gap: 20px; }
+  .grid-2 { grid-template-columns: minmax(0, 1.7fr) minmax(320px, .8fr); }
+  .card { background: var(--paper); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 22px; }
+  .card-title { margin: 0 0 6px; font-size: 20px; }
+  .subtle { color: var(--muted); font-size: 14px; }
+  .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  .btn { border: 0; border-radius: 12px; min-height: 44px; padding: 10px 18px; font-weight: 700; transition: transform .15s, opacity .15s; }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:disabled { cursor: not-allowed; opacity: .45; transform: none; }
+  .btn-primary { background: var(--navy); color: #fff; }
+  .btn-blue { background: var(--blue); color: #fff; }
+  .btn-light { background: #edf1f6; color: var(--ink); }
+  .btn-danger { background: var(--red-bg); color: var(--red); }
+  .field { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid #cdd7e3; border-radius: 11px; background: #fff; color: var(--ink); }
+  .field:focus { outline: 3px solid rgba(47,128,237,.14); border-color: var(--blue); }
+  .label { display: block; margin: 0 0 6px; font-size: 13px; font-weight: 700; color: #42526e; }
+  /* 本日の授業は画面幅に合わせて縮小し、横スクロールを発生させない。 */
+  .schedule { width: 100%; min-width: 0; overflow-x: hidden; }
+  .home-layout { grid-template-columns: minmax(0, 1fr); }
+  .timeline { width: 100%; min-width: 0; --teacher-width: clamp(105px, 12vw, 155px); }
+  .timeline-axis, .timeline-row { display: grid; grid-template-columns: var(--teacher-width) minmax(0, 1fr); }
+  .timeline-axis { min-height: 48px; align-items: end; }
+  .timeline-axis-label { padding: 0 12px 9px; color: var(--muted); font-size: 12px; font-weight: 750; }
+  .timeline-axis-track { position: relative; min-width: 0; height: 48px; border-bottom: 3px solid var(--navy); }
+  .timeline-mark { position: absolute; bottom: 10px; transform: translateX(-50%); color: var(--navy); font-size: clamp(8px, .72vw, 11px); white-space: nowrap; }
+  .timeline-mark:first-child { transform: none; }
+  .timeline-mark:last-child { transform: translateX(-100%); }
+  .timeline-row { min-height: 90px; border-bottom: 1px solid var(--line); }
+  .timeline-row:last-child { border-bottom: 0; }
+  .timeline-teacher { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 7px; padding: 12px; background: #f5f8fc; border-right: 1px solid var(--line); }
+  .timeline-teacher strong { font-size: 14px; }
+  .timeline-track { position: relative; min-width: 0; min-height: 90px; background: linear-gradient(180deg, #fff, #fbfdff); }
+  .timeline-guide { position: absolute; top: 0; bottom: 0; width: 1px; background: #e1e7ef; }
+  .timeline-lesson { position: absolute; top: 9px; bottom: 9px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; padding: 0 3px; overflow: hidden; }
+  .timeline-student { min-width: 0; display: flex; flex-direction: column; justify-content: center; padding: 7px clamp(3px, .6vw, 10px); border: 1px solid #d5dee8; border-left: 4px solid #303846; border-radius: 10px; background: #fff; color: var(--ink); overflow: hidden; }
+  .timeline-student strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(10px, .9vw, 13px); }
+  .timeline-student small { margin-top: 3px; font-size: 10px; }
+  .timeline-student.makeup { color: #a92e2e; border-color: #f2c6c6; border-left-color: var(--red); background: var(--red-bg); }
+  .timeline-student.course { color: #174f9f; border-color: #c9dcf7; border-left-color: var(--course); background: var(--course-bg); }
+  .schedule-table { width: 100%; min-width: 850px; border-collapse: separate; border-spacing: 0 10px; }
+  .schedule-table th { padding: 4px 10px; text-align: left; color: var(--muted); font-size: 12px; }
+  .schedule-table td { padding: 12px 10px; background: #f8fafc; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .schedule-table td:first-child { border-left: 1px solid var(--line); border-radius: 12px 0 0 12px; }
+  .schedule-table td:last-child { border-right: 1px solid var(--line); border-radius: 0 12px 12px 0; }
+  .teacher { font-weight: 800; white-space: nowrap; }
+  .student-card { border-left: 4px solid #303846; background: #fff; border-radius: 9px; padding: 9px 11px; min-width: 150px; }
+  .student-card.makeup { border-color: var(--red); background: var(--red-bg); color: #a22c2c; }
+  .student-card.course { border-color: var(--course); background: var(--course-bg); color: #174f9f; }
+  .student-name { font-weight: 750; }
+  .lesson-type { display: block; font-size: 11px; margin-top: 2px; }
+  .status { display: inline-flex; padding: 5px 10px; border-radius: 999px; background: #eef1f5; font-size: 12px; font-weight: 700; }
+  .status.present { color: var(--green); background: #eaf8f2; }
+  .clock-panel { display: grid; gap: 14px; }
+  .clock-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .clock-horizontal { grid-template-columns: minmax(220px, 300px) minmax(150px, 190px) minmax(440px, 1fr); align-items: end; }
+  .clock-horizontal .clock-buttons { grid-template-columns: repeat(4, minmax(95px, 1fr)); }
+  .clock-current-status { min-height: 44px; display: flex; align-items: center; padding: 0 12px; border-radius: 11px; background: #f4f7fb; color: var(--muted); }
+  .clock-heading { margin-bottom: 10px; }
+  .message { min-height: 22px; margin-top: 8px; color: var(--green); font-weight: 700; }
+  .message.error { color: var(--red); }
+  .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .summary-card { padding: 18px; background: linear-gradient(145deg, #fff, #f7fbff); border: 1px solid var(--line); border-radius: 16px; }
+  .summary-value { display: block; margin-top: 6px; font-size: 30px; font-weight: 850; color: var(--navy); }
+  .tabs { display: flex; gap: 8px; margin: 22px 0 16px; overflow-x: auto; }
+  .tab { white-space: nowrap; border: 1px solid var(--line); background: #fff; color: var(--muted); border-radius: 999px; padding: 9px 16px; font-weight: 700; }
+  .tab.active { color: #fff; background: var(--navy); border-color: var(--navy); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  .alert { display: flex; gap: 10px; padding: 13px; border-radius: 12px; margin: 9px 0; background: #fff7e8; color: #805b15; }
+  .alert.danger { background: var(--red-bg); color: #9e2b2b; }
+  .empty { padding: 28px; color: var(--muted); text-align: center; border: 1px dashed #ccd6e2; border-radius: 12px; }
+  .editor-row { display: grid; grid-template-columns: 90px 90px 160px 1fr 1fr 130px 44px; gap: 8px; align-items: end; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .student-input { display: grid; grid-template-columns: 1fr 86px; gap: 6px; }
+  .login-shell { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at top left, #e4f2ff, transparent 45%), var(--bg); }
+  .login-card { width: min(430px, 100%); }
+  .loading { padding: 40px; text-align: center; color: var(--muted); }
+  .calendar-toolbar { display: grid; grid-template-columns: 150px 1fr 150px; align-items: center; gap: 16px; margin-bottom: 22px; }
+  .calendar-title-wrap { display: grid; gap: 3px; text-align: center; }
+  .calendar-title { font-size: 24px; font-weight: 850; color: var(--navy); }
+  .calendar-week, .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(110px, 1fr)); min-width: 850px; }
+  .calendar-week { background: #f0f3f7; border: 1px solid var(--line); border-bottom: 0; border-radius: 12px 12px 0 0; }
+  .calendar-week span { padding: 12px; text-align: center; font-weight: 800; }
+  .calendar-week span:first-child { color: var(--red); }
+  .calendar-week span:last-child { color: var(--course); }
+  .calendar-grid { border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+  .calendar-day { min-height: 108px; padding: 12px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; color: var(--ink); background: #fff; border: 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: left; }
+  button.calendar-day:hover { background: var(--sky); box-shadow: inset 0 0 0 2px rgba(47,128,237,.18); }
+  .calendar-day.outside { background: #f8fafc; }
+  .calendar-lessons { color: var(--blue); font-size: 12px; font-weight: 800; }
+  .calendar-no-lesson { color: #a0abba; font-size: 12px; }
+  .changed-mark { margin-top: auto; padding: 3px 7px; border-radius: 999px; background: var(--red-bg); color: var(--red); font-size: 11px; font-weight: 750; }
+  .calendar-loading { grid-column: 1 / -1; }
+  #calendar-view { overflow-x: auto; }
+  .shift-matrix-wrap { overflow: auto; max-height: 65vh; border: 1px solid var(--line); border-radius: 14px; }
+  .shift-matrix { width: 100%; min-width: 1350px; border-collapse: separate; border-spacing: 0; }
+  .shift-matrix th, .shift-matrix td { padding: 10px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); vertical-align: middle; background: #fff; }
+  .shift-matrix thead th { position: sticky; top: 0; z-index: 4; background: #f0f3f7; text-align: center; }
+  .shift-matrix thead small { display: block; margin-top: 3px; color: var(--muted); font-weight: 500; }
+  .shift-matrix .teacher-sticky { position: sticky; left: 0; z-index: 3; min-width: 150px; background: #fff; text-align: left; }
+  .shift-matrix thead .teacher-sticky { z-index: 5; background: #f0f3f7; }
+  .teacher-pill { display: inline-block; padding: 7px 10px; border-radius: 999px; background: #e9edf3; font-weight: 800; white-space: nowrap; }
+  .lesson-cell { min-width: 220px; }
+  .matrix-student { display: grid; grid-template-columns: minmax(110px, 1fr) 68px 78px; gap: 5px; padding: 5px; border-left: 3px solid #303846; }
+  .matrix-student + .matrix-student { margin-top: 6px; }
+  .matrix-student.makeup { border-color: var(--red); background: var(--red-bg); }
+  .matrix-student.course { border-color: var(--course); background: var(--course-bg); }
+  .matrix-student .field { min-height: 38px; padding: 7px; font-size: 13px; }
+  .master-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; }
+  .master-table { width: 100%; min-width: 760px; border-collapse: collapse; }
+  .master-table th { padding: 13px 15px; background: #f0f3f7; color: #42526e; text-align: left; font-size: 13px; }
+  .master-table td { padding: 14px 15px; border-top: 1px solid var(--line); }
+  .master-table tbody tr:hover { background: var(--sky); }
+  .balance-chip { display: inline-flex; margin: 2px; padding: 4px 8px; border-radius: 999px; background: var(--course-bg); color: var(--course); font-size: 12px; font-weight: 750; }
+  .balance-chip.shortage { background: var(--red-bg); color: var(--red); }
+  .name-link { padding: 0; border: 0; background: transparent; color: var(--blue); font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
+  .name-link:hover { color: var(--navy); }
+  .detail-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 18px 0; padding: 18px; border-radius: 16px; background: linear-gradient(135deg, var(--sky), #fff); }
+  .detail-heading h2 { margin: 0 0 5px; }
+  .detail-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 22px; }
+  .detail-summary > div { display: grid; gap: 5px; padding: 15px; border: 1px solid var(--line); border-radius: 12px; }
+  .detail-summary span { color: var(--muted); font-size: 12px; }
+  .detail-columns { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(340px, .75fr); gap: 20px; margin-top: 22px; }
+  .meeting-card { margin-bottom: 10px; padding: 15px; border: 1px solid var(--line); border-radius: 13px; background: #fff; }
+  .meeting-card p { white-space: pre-wrap; }
+  .meeting-date { color: var(--blue); font-size: 13px; font-weight: 800; }
+  .next-action { padding: 9px 11px; border-radius: 9px; background: #f4f7fb; color: #42526e; font-size: 13px; white-space: pre-wrap; }
+  .meeting-form { display: grid; gap: 8px; align-content: start; padding: 18px; border: 1px solid var(--line); border-radius: 15px; background: #f9fbfd; }
+  .meeting-form h3 { margin-top: 0; }
+  textarea.field { resize: vertical; }
+  .credit-section { display: grid; gap: 14px; margin-top: 22px; padding: 18px; border: 1px solid var(--line); border-radius: 15px; background: #f9fbfd; }
+  .credit-section h3 { margin: 0; }
+  .credit-form { display: grid; grid-template-columns: 120px 110px 160px minmax(180px, 1fr) 130px; gap: 8px; align-items: center; }
+  @media (max-width: 900px) {
+    .grid-2 { grid-template-columns: 1fr; }
+    .summary-grid { grid-template-columns: 1fr 1fr; }
+    .editor-row { grid-template-columns: 1fr 1fr; }
+    .editor-row > * { min-width: 0; }
+    .calendar-toolbar { grid-template-columns: 1fr 1fr; }
+    .calendar-title-wrap { grid-column: 1 / -1; grid-row: 1; }
+    .clock-horizontal { grid-template-columns: 1fr; }
+    .clock-horizontal .clock-buttons { grid-template-columns: repeat(2, 1fr); }
+    .timeline { --teacher-width: 95px; }
+    .timeline-teacher { padding: 8px; }
+    .timeline-teacher strong { font-size: 12px; }
+    .timeline-student small { display: none; }
+    .detail-columns, .detail-summary { grid-template-columns: 1fr; }
+    .credit-form { grid-template-columns: 1fr 1fr; }
+  }
+</style>

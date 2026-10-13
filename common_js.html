@@ -1,0 +1,30 @@
+<script>
+  /** google.script.runをPromiseとして使えるようにする共通関数。 */
+  function callServer(functionName, ...args) {
+    return new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(error => reject(new Error(error.message || String(error))))
+        [functionName](...args);
+    });
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, char => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+    })[char]);
+  }
+
+  function lessonClass(type) {
+    if (type === '振替') return 'makeup';
+    if (type === '講習') return 'course';
+    return 'normal';
+  }
+
+  function setMessage(id, text, isError) {
+    const element = document.getElementById(id);
+    if (!element) return;
+    element.textContent = text || '';
+    element.classList.toggle('error', Boolean(isError));
+  }
+</script>

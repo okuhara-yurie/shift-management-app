@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head><base target="_top"><?!= include('css'); ?><?!= include('common_js'); ?></head>
+<body>
+  <header class="header">
+    <div class="brand"><span class="brand-mark">M</span><span>管理者ダッシュボード</span></div>
+    <div><a class="btn btn-light" target="_top" href="<?= getAppUrl() ?>">ホーム</a> <button id="logout" class="btn btn-light">ログアウト</button></div>
+  </header>
+  <main class="container">
+    <div id="admin-loading" class="card loading">freeeの講師情報と管理情報を読み込んでいます…</div>
+    <div id="admin-content" hidden>
+      <section id="summary" class="summary-grid"></section>
+      <nav class="tabs">
+        <button class="tab active" data-tab="overview">本日の確認</button>
+        <button class="tab" data-tab="shift">シフト変更</button>
+        <button class="tab" data-tab="teachers">講師情報</button>
+        <button class="tab" data-tab="students">生徒情報</button>
+        <button class="tab" data-tab="settings">設定</button>
+      </nav>
+      <section id="overview" class="tab-panel active grid grid-2">
+        <div class="card"><h2 class="card-title">優先して確認する項目</h2><div id="alerts"></div><h3>前日までの未対応</h3><div id="yesterday"></div></div>
+        <div class="card"><h2 class="card-title">本日の講師状況</h2><div id="attendance-list"></div><h3>残コマ注意</h3><div id="balances"></div></div>
+      </section>
+      <section id="teachers" class="tab-panel card">
+        <div id="teacher-list-view"><div class="toolbar"><div><h2 class="card-title">講師情報</h2><p class="subtle">講師名を押すと、固定シフトや打刻履歴を確認できます。</p></div><span id="teacher-count" class="status"></span></div><div id="teacher-list" class="loading">講師情報を読み込んでいます…</div></div>
+        <div id="teacher-detail-view" hidden></div>
+      </section>
+      <section id="students" class="tab-panel card">
+        <div id="student-list-view"><div class="toolbar"><div><h2 class="card-title">生徒情報</h2><p class="subtle">生徒名を押すと、固定授業・残コマ・保護者面談履歴を確認できます。</p></div><span id="student-count" class="status"></span></div><div id="student-list" class="loading">生徒情報を読み込んでいます…</div></div>
+        <div id="student-detail-view" hidden></div>
+      </section>
+      <section id="shift" class="tab-panel">
+        <div id="calendar-view" class="card">
+          <div class="calendar-toolbar">
+            <button id="previous-month" class="btn btn-light">前月</button>
+            <div class="calendar-title-wrap"><span id="calendar-title" class="calendar-title"></span><span class="subtle">日付を選択すると、その日の固定シフトを編集できます。</span></div>
+            <button id="next-month" class="btn btn-light">次月</button>
+          </div>
+          <div class="calendar-week"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div>
+          <div id="calendar-grid" class="calendar-grid"></div>
+          <div id="calendar-message" class="message"></div>
+        </div>
+        <div id="matrix-view" class="card" hidden>
+          <div class="toolbar">
+            <div><button id="back-calendar" class="btn btn-light">← 月間カレンダー</button><h2 id="matrix-title" class="card-title" style="margin-top:14px"></h2><p class="subtle">freeeの全講師を表示しています。固定シフトは入力済みの状態です。</p></div>
+            <button id="save-shift" class="btn btn-blue">この日の変更を保存</button>
+          </div>
+          <div id="shift-matrix" class="shift-matrix-wrap"></div>
+          <div id="shift-message" class="message"></div>
+        </div>
+      </section>
+      <section id="settings" class="tab-panel card">
+        <h2 class="card-title">管理者パスワード変更</h2>
+        <div class="grid" style="max-width:520px"><input id="current-password" class="field" type="password" placeholder="現在のパスワード"><input id="new-password" class="field" type="password" placeholder="新しいパスワード（8文字以上）"><button id="password-button" class="btn btn-primary">変更する</button><div id="password-message" class="message"></div></div>
+      </section>
+    </div>
+  </main>
+  <script>
+    const token = sessionStorage.getItem('adminToken');
+    const currentDate = new Date();
+    let calendarYear = currentDate.getFullYear();
+    let calendarMonth = currentDate.getMonth() + 1;
+    let selectedDate = '';
+    let editorMaster = { teachers: [], students: [], lessonTypes: [], periods: [], shifts: [] };
+
+    window.addEventListener('load', startAdmin);
+    async function startAdmin() {
+      try {
+        if (!token || !(await callServer('verifyAdminSession', token))) return showLoginLink();
+        const data = await callServer('getAdminDashboard', token);
+        renderDashboard(data);
+        document.getElementById('admin-loading').hidden = true;
+        document.getElementById('admin-content').hidden = false;
+      } catch (error) { document.getElementById('admin-loading').textContent = error.message; }
+    }
+    function showLoginLink() {
+      document.getElementById('admin-loading').innerHTML = '管理者ログインが必要です。<br><a class="btn btn-primary" target="_top" href="<?= getAppUrl() ?>?page=admin-login">ログイン画面を開く</a>';
+    }
+    function renderDashboard(data) {
+      const cards = [['本日の授業数', data.summary.lessonCount], ['出勤予定講師', data.summary.scheduledTeachers], ['出勤済み講師', data.summary.presentTeachers], ['要確認', data.summary.alertCount]];
+      document.getElementById('summary').innerHTML = cards.map(card => `<div class="summary-card"><span class="subtle">${card[0]}</span><span class="summary-value">${card[1]}</span></div>`).join('');
+      renderAlerts('alerts', data.alerts, '現在、緊急の警告はありません。');
+      renderAlerts('yesterday', data.yesterdayIssues, '前日までの未対応はありません。');
+      document.getElementById('attendance-list').innerHTML = data.attendance.length ? data.attendance.map(item => `<div class="alert"><strong>${escapeHtml(item.employeeName)}</strong><span>${escapeHtml(item.label)}</span></div>`).join('') : '<div class="empty">本日の出勤予定者はいません。</div>';
+      document.getElementById('balances').innerHTML = data.balances.length ? data.balances.map(item => `<div class="alert ${item.remaining < 0 ? 'danger' : ''}"><strong>${escapeHtml(item.studentName)}</strong><span>${escapeHtml(item.type)}：残り ${item.remaining}コマ</span></div>`).join('') : '<div class="empty">残り2コマ以下の生徒はいません。</div>';
+    }
+    function renderAlerts(id, items, emptyText) {
+      document.getElementById(id).innerHTML = items.length ? items.map(item => `<div class="alert ${item.level === 'danger' ? 'danger' : ''}"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.message)}</span></div>`).join('') : `<div class="empty">${escapeHtml(emptyText)}</div>`;
+    }
+
+    document.querySelectorAll('[data-tab]').forEach(button => button.addEventListener('click', () => {
+      document.querySelectorAll('.tab,.tab-panel').forEach(element => element.classList.remove('active'));
+      button.classList.add('active');
+      document.getElementById(button.dataset.tab).classList.add('active');
+      if (button.dataset.tab === 'shift') loadCalendar();
+      if (button.dataset.tab === 'teachers') loadTeacherInformation();
+      if (button.dataset.tab === 'students') loadStudentInformation();
+    }));
+
+    async function loadTeacherInformation() {
+      document.getElementById('teacher-list-view').hidden = false;
+      document.getElementById('teacher-detail-view').hidden = true;
+      const target = document.getElementById('teacher-list');
+      target.innerHTML = '<div class="loading">freeeから講師情報を読み込んでいます…</div>';
+      try {
+        const teachers = await callServer('getTeacherInformation', token);
+        document.getElementById('teacher-count').textContent = `${teachers.length}名`;
+        target.innerHTML = teachers.length ? `<div class="master-table-wrap"><table class="master-table"><thead><tr><th>講師名</th><th>freee従業員ID</th><th>担当可能曜日</th><th>勤務可能時間</th><th>状態</th></tr></thead><tbody>${teachers.map(teacher => `<tr><td><button class="name-link teacher-detail-link" data-id="${escapeHtml(teacher.id)}">${escapeHtml(teacher.name)}</button></td><td>${escapeHtml(teacher.id)}</td><td>${escapeHtml(teacher.availableDays)}</td><td>${escapeHtml(teacher.availableTime)}</td><td><span class="status present">有効</span></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">freeeから取得できる講師がいません。</div>';
+        target.querySelectorAll('.teacher-detail-link').forEach(button => button.addEventListener('click', () => openTeacherDetail(button.dataset.id)));
+      } catch (error) { target.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`; }
+    }
+
+    async function loadStudentInformation() {
+      document.getElementById('student-list-view').hidden = false;
+      document.getElementById('student-detail-view').hidden = true;
+      const target = document.getElementById('student-list');
+      target.innerHTML = '<div class="loading">生徒情報を読み込んでいます…</div>';
+      try {
+        const students = await callServer('getStudentInformation', token);
+        document.getElementById('student-count').textContent = `${students.length}名`;
+        target.innerHTML = students.length ? `<div class="master-table-wrap"><table class="master-table"><thead><tr><th>生徒名</th><th>生徒ID</th><th>残コマ</th><th>メモ</th></tr></thead><tbody>${students.map(student => `<tr><td><button class="name-link student-detail-link" data-id="${escapeHtml(student.id)}">${escapeHtml(student.name)}</button></td><td>${escapeHtml(student.id)}</td><td>${student.balances.length ? student.balances.filter(balance => balance.remaining > 0).map(balance => `<span class="balance-chip">${escapeHtml(balance.type)} ${balance.remaining}</span>`).join(' ') || '<span class="subtle">残コマなし</span>' : '<span class="subtle">未登録</span>'}</td><td>${escapeHtml(student.memo || '―')}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">「生徒」シートに生徒が登録されていません。</div>';
+        target.querySelectorAll('.student-detail-link').forEach(button => button.addEventListener('click', () => openStudentDetail(button.dataset.id)));
+      } catch (error) { target.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`; }
+    }
+
+    async function openTeacherDetail(teacherId) {
+      const list = document.getElementById('teacher-list-view');
+      const detail = document.getElementById('teacher-detail-view');
+      list.hidden = true;
+      detail.hidden = false;
+      detail.innerHTML = '<div class="loading">講師の詳細を読み込んでいます…</div>';
+      try {
+        const data = await callServer('getTeacherDetail', teacherId, token);
+        const shiftRows = data.fixedShifts.length ? data.fixedShifts.map(shift => `<tr><td>${escapeHtml(shift.weekday)}</td><td>${escapeHtml(shift.startTime)}〜${escapeHtml(shift.endTime)}</td><td>${escapeHtml(shift.student1 || '―')} ${shift.student1Type ? `（${escapeHtml(shift.student1Type)}）` : ''}</td><td>${escapeHtml(shift.student2 || '―')} ${shift.student2Type ? `（${escapeHtml(shift.student2Type)}）` : ''}</td></tr>`).join('') : '<tr><td colspan="4">固定授業はありません。</td></tr>';
+        const attendanceRows = data.attendance.length ? data.attendance.map(record => `<tr><td>${escapeHtml(record.datetime)}</td><td>${escapeHtml(record.type)}</td><td>${escapeHtml(record.reason || '―')}</td></tr>`).join('') : '<tr><td colspan="3">打刻履歴はありません。</td></tr>';
+        detail.innerHTML = `<button class="btn btn-light" id="back-teachers">← 講師一覧</button><div class="detail-heading"><div><h2>${escapeHtml(data.teacher.name)}</h2><p class="subtle">freee従業員ID：${escapeHtml(data.teacher.id)}</p></div><span class="status present">有効</span></div><div class="detail-summary"><div><span>担当可能曜日</span><strong>${escapeHtml(data.teacher.availableDays)}</strong></div><div><span>勤務可能時間</span><strong>${escapeHtml(data.teacher.availableTime)}</strong></div></div><h3>固定シフト</h3><div class="master-table-wrap"><table class="master-table"><thead><tr><th>曜日</th><th>時間</th><th>生徒1</th><th>生徒2</th></tr></thead><tbody>${shiftRows}</tbody></table></div><h3>最近の打刻履歴</h3><div class="master-table-wrap"><table class="master-table"><thead><tr><th>日時</th><th>種別</th><th>修正理由</th></tr></thead><tbody>${attendanceRows}</tbody></table></div>`;
+        document.getElementById('back-teachers').addEventListener('click', () => { detail.hidden = true; list.hidden = false; });
+      } catch (error) { detail.innerHTML = `<button class="btn btn-light" id="back-teachers">← 講師一覧</button><div class="empty">${escapeHtml(error.message)}</div>`; document.getElementById('back-teachers').addEventListener('click', () => { detail.hidden = true; list.hidden = false; }); }
+    }
+
+    async function openStudentDetail(studentId) {
+      const list = document.getElementById('student-list-view');
+      const detail = document.getElementById('student-detail-view');
+      list.hidden = true;
+      detail.hidden = false;
+      detail.innerHTML = '<div class="loading">生徒の詳細を読み込んでいます…</div>';
+      try { renderStudentDetail(await callServer('getStudentDetail', studentId, token)); }
+      catch (error) { detail.innerHTML = `<button class="btn btn-light" id="back-students">← 生徒一覧</button><div class="empty">${escapeHtml(error.message)}</div>`; bindBackStudents(); }
+    }
+
+    function renderStudentDetail(data) {
+      const detail = document.getElementById('student-detail-view');
+      const shiftRows = data.fixedShifts.length ? data.fixedShifts.map(shift => `<tr><td>${escapeHtml(shift.weekday)}</td><td>${escapeHtml(shift.startTime)}〜${escapeHtml(shift.endTime)}</td><td>${escapeHtml(shift.teacherName)}</td><td>${escapeHtml(shift.type)}</td></tr>`).join('') : '<tr><td colspan="4">固定授業はありません。</td></tr>';
+      const balanceHtml = data.student.balances.filter(balance => balance.remaining > 0).map(balance => `<span class="balance-chip">${escapeHtml(balance.type)} 残り${balance.remaining}コマ</span>`).join('') || '<span class="subtle">残コマはありません。</span>';
+      const balanceRows = data.student.balances.length ? data.student.balances.map(balance => `<tr><td>${escapeHtml(balance.type)}</td><td>${balance.granted}</td><td>${balance.planned}</td><td>${balance.used}</td><td><strong>${balance.remaining}</strong></td><td>${balance.remaining - balance.planned}</td></tr>`).join('') : '<tr><td colspan="6">振替・講習コマはまだ登録されていません。</td></tr>';
+      const meetingHtml = data.meetings.length ? data.meetings.map(meeting => `<article class="meeting-card"><div class="meeting-date">${escapeHtml(meeting.date)}・${escapeHtml(meeting.partner)}</div><p>${escapeHtml(meeting.content)}</p><div class="next-action"><strong>次回対応：</strong>${escapeHtml(meeting.nextAction || 'なし')}</div></article>`).join('') : '<div class="empty">保護者面談の履歴はありません。</div>';
+      const today = new Date().toISOString().slice(0, 10);
+      detail.innerHTML = `<button class="btn btn-light" id="back-students">← 生徒一覧</button><div class="detail-heading"><div><h2>${escapeHtml(data.student.name)}</h2><p class="subtle">生徒ID：${escapeHtml(data.student.id)}</p></div><div>${balanceHtml}</div></div><h3>固定授業</h3><div class="master-table-wrap"><table class="master-table"><thead><tr><th>曜日</th><th>時間</th><th>担当講師</th><th>区分</th></tr></thead><tbody>${shiftRows}</tbody></table></div><section class="credit-section"><div><h3>振替・講習コマ管理</h3><p class="subtle">日別シフトの「予定」と「実施済み」から自動集計します。</p></div><div class="master-table-wrap"><table class="master-table"><thead><tr><th>区分</th><th>付与</th><th>予定</th><th>実施済み</th><th>残数</th><th>予定後残数</th></tr></thead><tbody>${balanceRows}</tbody></table></div><div class="credit-form"><select id="credit-type" class="field"><option>講習</option><option>振替</option></select><input id="credit-count" class="field" type="number" min="1" max="100" value="1" placeholder="追加数"><input id="credit-date" class="field" type="date" value="${today}"><input id="credit-note" class="field" placeholder="例：夏期講習申込"><button id="save-credit" class="btn btn-blue">コマを追加</button></div><div id="credit-message" class="message"></div></section><div class="detail-columns"><section><h3>保護者面談履歴</h3><div id="meeting-history">${meetingHtml}</div></section><section class="meeting-form"><h3>面談内容の追加</h3><label class="label">面談日</label><input id="meeting-date" class="field" type="date" value="${today}"><label class="label">面談相手</label><input id="meeting-partner" class="field" value="保護者"><label class="label">面談内容</label><textarea id="meeting-content" class="field" rows="6" placeholder="学習状況、保護者からの相談、説明内容など"></textarea><label class="label">次回対応</label><textarea id="meeting-next" class="field" rows="3" placeholder="次回までの確認事項など"></textarea><button id="save-meeting" class="btn btn-blue">面談内容を保存</button><div id="meeting-message" class="message"></div></section></div>`;
+      bindBackStudents();
+      document.getElementById('save-meeting').addEventListener('click', () => saveMeeting(data.student.id));
+      document.getElementById('save-credit').addEventListener('click', () => saveCredits(data.student.id));
+    }
+
+    function bindBackStudents() {
+      document.getElementById('back-students').addEventListener('click', () => { document.getElementById('student-detail-view').hidden = true; document.getElementById('student-list-view').hidden = false; });
+    }
+
+    async function saveMeeting(studentId) {
+      setMessage('meeting-message', '保存しています…');
+      try {
+        const data = await callServer('saveGuardianMeeting', { studentId: studentId, date: document.getElementById('meeting-date').value, partner: document.getElementById('meeting-partner').value, content: document.getElementById('meeting-content').value, nextAction: document.getElementById('meeting-next').value }, token);
+        renderStudentDetail(data);
+        setMessage('meeting-message', '面談内容を保存しました。');
+      } catch (error) { handleAdminError('meeting-message', error); }
+    }
+
+    async function saveCredits(studentId) {
+      setMessage('credit-message', '追加しています…');
+      try {
+        const data = await callServer('addLessonCredits', {
+          studentId: studentId,
+          type: document.getElementById('credit-type').value,
+          count: document.getElementById('credit-count').value,
+          date: document.getElementById('credit-date').value,
+          note: document.getElementById('credit-note').value
+        }, token);
+        renderStudentDetail(data);
+        setMessage('credit-message', 'コマ数を追加しました。');
+      } catch (error) { handleAdminError('credit-message', error); }
+    }
+
+    async function loadCalendar() {
+      document.getElementById('calendar-view').hidden = false;
+      document.getElementById('matrix-view').hidden = true;
+      document.getElementById('calendar-grid').innerHTML = '<div class="loading calendar-loading">カレンダーを読み込んでいます…</div>';
+      try { renderCalendar(await callServer('getShiftCalendarData', calendarYear, calendarMonth, token)); }
+      catch (error) { handleAdminError('calendar-message', error); }
+    }
+    function renderCalendar(data) {
+      document.getElementById('calendar-title').textContent = `${data.year}年${data.month}月`;
+      const cells = [];
+      for (let blank = 0; blank < data.firstWeekday; blank++) cells.push('<div class="calendar-day outside"></div>');
+      data.days.forEach(day => cells.push(`<button class="calendar-day" data-date="${day.date}"><strong>${day.day}</strong>${day.lessonCount ? `<span class="calendar-lessons">${day.lessonCount}授業</span>` : '<span class="calendar-no-lesson">授業なし</span>'}${day.changed ? '<span class="changed-mark">変更あり</span>' : ''}</button>`));
+      while (cells.length % 7) cells.push('<div class="calendar-day outside"></div>');
+      const grid = document.getElementById('calendar-grid');
+      grid.innerHTML = cells.join('');
+      grid.querySelectorAll('[data-date]').forEach(button => button.addEventListener('click', () => openDailyEditor(button.dataset.date)));
+    }
+    document.getElementById('previous-month').addEventListener('click', () => changeMonth(-1));
+    document.getElementById('next-month').addEventListener('click', () => changeMonth(1));
+    function changeMonth(amount) {
+      calendarMonth += amount;
+      if (calendarMonth === 0) { calendarMonth = 12; calendarYear--; }
+      if (calendarMonth === 13) { calendarMonth = 1; calendarYear++; }
+      loadCalendar();
+    }
+
+    async function openDailyEditor(dateText) {
+      selectedDate = dateText;
+      document.getElementById('calendar-view').hidden = true;
+      document.getElementById('matrix-view').hidden = false;
+      document.getElementById('matrix-title').textContent = `${dateText} の講師配置`;
+      document.getElementById('shift-matrix').innerHTML = '<div class="loading">freeeの講師と固定シフトを読み込んでいます…</div>';
+      setMessage('shift-message', '');
+      try { editorMaster = await callServer('getShiftEditorData', dateText, token); renderShiftMatrix(); }
+      catch (error) { handleAdminError('shift-message', error); }
+    }
+    document.getElementById('back-calendar').addEventListener('click', loadCalendar);
+
+    function renderShiftMatrix() {
+      const shiftMap = {};
+      editorMaster.shifts.forEach(shift => { shiftMap[`${shift.teacherId}|${shift.startTime}`] = shift; });
+      const header = editorMaster.periods.map(period => `<th>${escapeHtml(period.label)}<small>${period.startTime}〜${period.endTime}</small></th>`).join('');
+      const rows = editorMaster.teachers.map(teacher => {
+        const cells = editorMaster.periods.map(period => lessonCellHtml(period, shiftMap[`${teacher.id}|${period.startTime}`])).join('');
+        const teacherMemo = editorMaster.shifts.find(shift => shift.teacherId === teacher.id)?.memo || '';
+        return `<tr data-teacher-id="${escapeHtml(teacher.id)}" data-teacher-name="${escapeHtml(teacher.name)}"><th class="teacher-sticky"><span class="teacher-pill">${escapeHtml(teacher.name)}</span></th>${cells}<td><input class="field teacher-memo" value="${escapeHtml(teacherMemo)}" placeholder="備考"></td></tr>`;
+      }).join('');
+      document.getElementById('shift-matrix').innerHTML = `<table class="shift-matrix"><thead><tr><th class="teacher-sticky">講師名</th>${header}<th>備考</th></tr></thead><tbody>${rows}</tbody></table>`;
+    }
+    function lessonCellHtml(period, shift) {
+      return `<td class="lesson-cell" data-start="${period.startTime}" data-end="${period.endTime}">${studentSlotHtml(shift?.students?.[0])}${studentSlotHtml(shift?.students?.[1])}</td>`;
+    }
+    function studentSlotHtml(student) {
+      return `<div class="matrix-student ${lessonClass(student?.type)}"><select class="field student-select">${optionHtml(editorMaster.students, student)}</select><select class="field type-select">${editorMaster.lessonTypes.map(type => `<option ${student?.type === type ? 'selected' : ''}>${type}</option>`).join('')}</select><select class="field lesson-status"><option ${student?.status !== '実施済み' ? 'selected' : ''}>予定</option><option ${student?.status === '実施済み' ? 'selected' : ''}>実施済み</option></select></div>`;
+    }
+    function optionHtml(items, selected) {
+      const selectedKey = selected?.id || selected?.name || '';
+      return '<option value="" data-name="">生徒を選択</option>' + items.map(item => {
+        const key = item.id || item.name;
+        return `<option value="${escapeHtml(item.id || '')}" data-name="${escapeHtml(item.name)}" ${key === selectedKey ? 'selected' : ''}>${escapeHtml(item.name)}</option>`;
+      }).join('');
+    }
+
+    document.getElementById('save-shift').addEventListener('click', async () => {
+      const shifts = [];
+      document.querySelectorAll('.shift-matrix tbody tr').forEach(row => {
+        const memo = row.querySelector('.teacher-memo').value;
+        row.querySelectorAll('.lesson-cell').forEach(cell => {
+          const students = [...cell.querySelectorAll('.student-select')].map((select, index) => ({ id: select.value, name: select.selectedOptions[0]?.dataset.name || '', type: cell.querySelectorAll('.type-select')[index].value, status: cell.querySelectorAll('.lesson-status')[index].value })).filter(student => student.name);
+          if (students.length) shifts.push({ startTime: cell.dataset.start, endTime: cell.dataset.end, teacherId: row.dataset.teacherId, teacherName: row.dataset.teacherName, students: students, changeType: '変更', memo: memo });
+        });
+      });
+      setMessage('shift-message', '保存しています…');
+      try {
+        const result = await callServer('saveDailyShifts', selectedDate, shifts, token);
+        editorMaster.shifts = result.shifts;
+        renderShiftMatrix();
+        setMessage('shift-message', result.message);
+      } catch (error) { handleAdminError('shift-message', error); }
+    });
+
+    document.getElementById('password-button').addEventListener('click', async () => {
+      try { setMessage('password-message', await callServer('changeAdminPassword', document.getElementById('current-password').value, document.getElementById('new-password').value, token)); }
+      catch (error) { handleAdminError('password-message', error); }
+    });
+    document.getElementById('logout').addEventListener('click', async () => {
+      const url = await callServer('adminLogout', token);
+      sessionStorage.removeItem('adminToken');
+      document.getElementById('admin-content').hidden = true;
+      document.getElementById('admin-loading').hidden = false;
+      document.getElementById('admin-loading').innerHTML = `<a class="btn btn-primary" target="_top" href="${url}">ログイン画面へ戻る</a>`;
+    });
+    function handleAdminError(messageId, error) { setMessage(messageId, error.message, true); if (error.message.includes('再ログイン')) showLoginLink(); }
+  </script>
+</body>
+</html>

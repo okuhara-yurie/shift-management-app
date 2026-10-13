@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <?!= include('css'); ?>
+  <?!= include('common_js'); ?>
+</head>
+<body>
+  <header class="header">
+    <div class="brand"><span class="brand-mark">M</span><span><?= APP.NAME ?></span></div>
+    <!-- Apps Scriptの内部フレームではなく、ブラウザ全体で管理者画面へ移動する。 -->
+    <a class="btn btn-light" target="_top" href="<?= getAppUrl() ?>?page=admin-login">管理者画面</a>
+  </header>
+
+  <main class="container">
+    <div class="grid home-layout">
+      <section class="card">
+        <div class="toolbar">
+          <div><h1 class="card-title">本日の授業</h1><div id="today" class="subtle"></div></div>
+          <div><span style="color:#303846">● 通常</span>　<span style="color:#d64545">● 振替</span>　<span style="color:#2166d1">● 講習</span></div>
+        </div>
+        <div id="schedule" class="loading">本日のシフトを読み込んでいます…</div>
+      </section>
+
+      <section class="card">
+        <div class="toolbar clock-heading">
+          <div><h2 class="card-title">かんたん打刻</h2><p class="subtle">自分の名前を選び、そのままボタンを押してください。</p></div>
+          <div id="clock-message" class="message"></div>
+        </div>
+        <div class="clock-panel clock-horizontal">
+          <div class="clock-employee"><label class="label" for="employee">講師名</label><select id="employee" class="field"><option value="">選択してください</option></select></div>
+          <div id="selected-status" class="clock-current-status">現在の状態：―</div>
+          <div class="clock-buttons">
+            <button class="btn btn-primary" data-clock="clock_in">出勤</button>
+            <button class="btn btn-light" data-clock="clock_out">退勤</button>
+            <button class="btn btn-light" data-clock="break_begin">休憩開始</button>
+            <button class="btn btn-light" data-clock="break_end">休憩終了</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    let homeData = null;
+
+    window.addEventListener('load', async () => {
+      try {
+        homeData = await callServer('getHomeData');
+        renderHome(homeData);
+      } catch (error) {
+        document.getElementById('schedule').innerHTML = '<div class="empty">' + escapeHtml(error.message) + '</div>';
+      }
+    });
+
+    function renderHome(data) {
+      document.getElementById('today').textContent = data.date;
+      const select = document.getElementById('employee');
+      data.employees.forEach(employee => select.insertAdjacentHTML('beforeend',
+        `<option value="${escapeHtml(employee.id)}">${escapeHtml(employee.name)}</option>`));
+      renderSchedule(data.schedule, data.attendance);
+      updateSelectedStatus();
+    }
+
+    function renderSchedule(shifts, attendance) {
+      const target = document.getElementById('schedule');
+      if (!shifts.length) {
+        target.innerHTML = '<div class="empty">本日の授業は登録されていません。</div>';
+        return;
+      }
+
+      // 同じ講師の授業を1本の時間軸へまとめる。
+      const teachers = {};
+      shifts.forEach(shift => {
+        const key = shift.teacherId || shift.teacherName;
+        if (!teachers[key]) teachers[key] = {
+          id: shift.teacherId,
+          name: shift.teacherName,
+          shifts: []
+        };
+        teachers[key].shifts.push(shift);
+      });
+
+      target.className = 'schedule';
+      const timeMarks = ['13:10', '14:40', '14:50', '16:20', '16:50', '18:20', '18:30', '20:00', '20:10', '21:40'];
+      const axisMarks = timeMarks.map(time => `<span class="timeline-mark" style="left:${timelinePercent(time)}%"><b>${time}</b></span>`).join('');
+      const guideLines = timeMarks.map(time => `<span class="timeline-guide" style="left:${timelinePercent(time)}%"></span>`).join('');
+
+      const teacherRows = Object.values(teachers).map(teacher => {
+        const status = attendance[teacher.id];
+        const blocks = teacher.shifts.map(shift => {
+          const left = timelinePercent(shift.startTime);
+          const width = timelinePercent(shift.endTime) - left;
+          const students = shift.students.map(student => `<div class="timeline-student ${lessonClass(student.type)}"><strong>${escapeHtml(student.name)}</strong><small>${escapeHtml(student.type)}</small></div>`).join('');
+          return `<div class="timeline-lesson" style="left:${left}%;width:${width}%" title="${escapeHtml(shift.startTime)}〜${escapeHtml(shift.endTime)}">${students}</div>`;
+        }).join('');
+        return `<div class="timeline-row"><div class="timeline-teacher"><strong>${escapeHtml(teacher.name)}</strong><span class="status ${status && status.type !== 'clock_out' ? 'present' : ''}">${escapeHtml(status ? status.label : '未出勤')}</span></div><div class="timeline-track">${guideLines}${blocks}</div></div>`;
+      }).join('');
+
+      target.innerHTML = `<div class="timeline"><div class="timeline-axis"><div class="timeline-axis-label">講師</div><div class="timeline-axis-track">${axisMarks}</div></div>${teacherRows}</div>`;
+    }
+
+    /** HH:mmを13:10～21:40の時間軸上の割合へ変換する。 */
+    function timelinePercent(time) {
+      const [hour, minute] = time.split(':').map(Number);
+      const start = 13 * 60 + 10;
+      const end = 21 * 60 + 40;
+      return Math.max(0, Math.min(100, ((hour * 60 + minute - start) / (end - start)) * 100));
+    }
+
+    document.getElementById('employee').addEventListener('change', updateSelectedStatus);
+    function updateSelectedStatus() {
+      const id = document.getElementById('employee').value;
+      const status = homeData && homeData.attendance[id];
+      document.getElementById('selected-status').textContent = '現在の状態：' + (status ? status.label : '未出勤');
+    }
+
+    document.querySelectorAll('[data-clock]').forEach(button => button.addEventListener('click', async () => {
+      const employeeId = document.getElementById('employee').value;
+      if (!employeeId) return setMessage('clock-message', '先に講師名を選択してください。', true);
+      document.querySelectorAll('[data-clock]').forEach(btn => btn.disabled = true);
+      setMessage('clock-message', '記録しています…');
+      try {
+        const result = await callServer('recordAttendance', employeeId, button.dataset.clock);
+        homeData.attendance = result.status;
+        renderSchedule(homeData.schedule, homeData.attendance);
+        updateSelectedStatus();
+        setMessage('clock-message', result.message);
+      } catch (error) {
+        setMessage('clock-message', error.message, true);
+      } finally {
+        document.querySelectorAll('[data-clock]').forEach(btn => btn.disabled = false);
+      }
+    }));
+  </script>
+</body>
+</html>

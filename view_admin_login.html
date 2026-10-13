@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head><base target="_top"><?!= include('css'); ?><?!= include('common_js'); ?></head>
+<body>
+  <main class="login-shell">
+    <section class="card login-card">
+      <div class="brand"><span class="brand-mark">M</span><span>管理者ログイン</span></div>
+      <p class="subtle">シフト変更や勤怠修正は、管理者のみ操作できます。</p>
+      <form id="login-form">
+        <label class="label" for="password">管理者パスワード</label>
+        <input id="password" class="field" type="password" autocomplete="current-password" required>
+        <button id="login-button" class="btn btn-primary" style="width:100%;margin-top:14px">ログイン</button>
+        <div id="login-message" class="message"></div>
+      </form>
+      <a target="_top" href="<?= getAppUrl() ?>">ホームへ戻る</a>
+    </section>
+  </main>
+  <script>
+    // 4時間以内の管理者セッションが残っていれば、戻る操作の後も再入力させない。
+    window.addEventListener('load', restoreAdminSession);
+    async function restoreAdminSession() {
+      const savedToken = sessionStorage.getItem('adminToken');
+      if (!savedToken) return;
+      try {
+        if (!(await callServer('verifyAdminSession', savedToken))) {
+          sessionStorage.removeItem('adminToken');
+          return;
+        }
+        setMessage('login-message', '管理者画面に戻ります…');
+        const adminHtml = await callServer('getAdminPageHtml', savedToken);
+        document.open(); document.write(adminHtml); document.close();
+      } catch (error) {
+        sessionStorage.removeItem('adminToken');
+      }
+    }
+
+    document.getElementById('login-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = document.getElementById('login-button');
+      button.disabled = true;
+      setMessage('login-message', '確認しています…');
+      try {
+        const result = await callServer('adminLogin', document.getElementById('password').value);
+        sessionStorage.setItem('adminToken', result.token);
+
+        // URLへ移動せず、認証済みの管理者HTMLを同じ画面内へ読み込む。
+        // この方法なら「管理者画面を開く」という中間ボタンが不要になる。
+        setMessage('login-message', '管理者画面を読み込んでいます…');
+        const adminHtml = await callServer('getAdminPageHtml', result.token);
+        document.open();
+        document.write(adminHtml);
+        document.close();
+      } catch (error) {
+        setMessage('login-message', error.message, true);
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
